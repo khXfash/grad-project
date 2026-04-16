@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "596255721571",
+    "project_id": "bracelet-sync-health",
+    "storage_bucket": "bracelet-sync-health.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:596255721571:android:d9211df3261c902a6b9056",
+        "android_client_info": {
+          "package_name": "com.braceletsync.health"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvZ_Qc_SrREgXfMFhlryW-r4wq8nj-rGs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
