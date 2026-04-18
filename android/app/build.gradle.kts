@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.braceletsync.health"
-        minSdk = 21
+        minSdk = flutter.minSdkVersion // Required for Google ML Kit Face Detection
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -33,6 +33,10 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    androidResources {
+        noCompress("tflite")
     }
 }
 
