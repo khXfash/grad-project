@@ -30,6 +30,10 @@ class AppProvider extends ChangeNotifier {
   StressReading? get latestReading => _latestReading;
   List<StressReading> get recentReadings => List.unmodifiable(_recentReadings);
   bool get isConnected => _bracelet.isConnected;
+  bool get isMockMode => _bracelet.isMockMode;
+  bool get isFingerDetected => _bracelet.isFingerDetected;
+  bool get isScanning => _bracelet.isScanning;
+  List<dynamic> get scanResults => _bracelet.scanResults;
   bool get savingReadings => _savingReadings;
 
   int get currentHR => _bracelet.currentHeartRate;
@@ -47,6 +51,15 @@ class AppProvider extends ChangeNotifier {
   // ── Emotion ───────────────────────────────────────────────────────────────
   String _detectedEmotion = 'Unknown';
   String get detectedEmotion => _detectedEmotion;
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+  String _profileName = '';
+  String _reportEmail = '';
+  final bool _profileLoading = false;
+
+  String get profileName => _profileName;
+  String get reportEmail => _reportEmail;
+  bool get profileLoading => _profileLoading;
 
   // ── Gemini ready ─────────────────────────────────────────────────────────
   bool get geminiReady => _gemini.isInitialized;
@@ -83,6 +96,7 @@ class AppProvider extends ChangeNotifier {
             _authLoading = false;
             notifyListeners();
             _loadHistory();
+            _loadProfile();
           }
         },
         onError: (_) {
@@ -114,6 +128,32 @@ class AppProvider extends ChangeNotifier {
     } catch (_) {
       // Firestore not available yet — silently ignore
     }
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final data = await _firestore.getProfile();
+      if (data != null) {
+        _profileName = data['name'] as String? ?? '';
+        _reportEmail = data['reportEmail'] as String? ?? '';
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveProfile({required String name, required String email}) async {
+    _profileName = name;
+    _reportEmail = email;
+    notifyListeners();
+    await _firestore.saveProfile({'name': name, 'reportEmail': email});
+  }
+
+  /// Returns [stressReadings, moodLogs] for the past 7 days.
+  Future<(List<StressReading>, List<MoodLog>)> getWeeklyReport() async {
+    final since = DateTime.now().subtract(const Duration(days: 7));
+    final readings = await _firestore.getReadingsSince(since);
+    final moods = await _firestore.getMoodLogsSince(since);
+    return (readings, moods);
   }
 
   // ── Email / Password auth ─────────────────────────────────────────────────
@@ -189,6 +229,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   void connectBracelet() {
+    _braceletSub?.cancel();
     _bracelet.connect();
     _braceletSub = _bracelet.readings.listen(_onReading);
     notifyListeners();
@@ -197,6 +238,30 @@ class AppProvider extends ChangeNotifier {
   void disconnectBracelet() {
     _bracelet.disconnect();
     _braceletSub?.cancel();
+    notifyListeners();
+  }
+
+  Future<void> startScan() async {
+    await _bracelet.startScan();
+    notifyListeners();
+  }
+
+  Future<void> stopScan() async {
+    await _bracelet.stopScan();
+    notifyListeners();
+  }
+
+  Future<void> connectToDevice(dynamic device) async {
+    _braceletSub?.cancel();
+    await _bracelet.connectToDevice(device);
+    _braceletSub = _bracelet.readings.listen(_onReading);
+    notifyListeners();
+  }
+
+  void startSimulationMode() {
+    _braceletSub?.cancel();
+    _bracelet.startSimulationMode();
+    _braceletSub = _bracelet.readings.listen(_onReading);
     notifyListeners();
   }
 
@@ -218,13 +283,20 @@ class AppProvider extends ChangeNotifier {
 
   // ── Mood logging ──────────────────────────────────────────────────────────
 
-  Future<void> logMood({required String emotion, required String notes}) async {
+  Future<void> logMood({
+    required String emotion,
+    required String notes,
+    String source = 'manual',
+    int? confidence,
+  }) async {
     final log = MoodLog(
       id: '',
       timestamp: DateTime.now(),
       emotion: emotion,
       notes: notes,
       stressScore: _latestReading?.stressScore ?? 0,
+      source: source,
+      confidence: confidence,
     );
     await _firestore.saveMoodLog(log);
   }

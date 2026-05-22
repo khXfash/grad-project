@@ -1,9 +1,8 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:provider/provider.dart';
@@ -29,11 +28,9 @@ class _EmotionScreenState extends State<EmotionScreen>
   final EmotionMlService _mlService = EmotionMlService();
   late final FaceDetector _faceDetector;
 
-  bool _isAnalyzing = false;
   bool _isBusy = false;
   String? _result;
   String? _confidence;
-  Rect? _faceRect;
 
   static const _emotions = [
     ('Calm', '😌', AppColors.stressLow),
@@ -81,167 +78,97 @@ class _EmotionScreenState extends State<EmotionScreen>
     await _controller?.dispose();
     _controller = CameraController(
       _cameras[index],
-      ResolutionPreset.low, // Lower resolution for faster processing
+      ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.yuv420
-          : ImageFormatGroup.bgra8888,
     );
     try {
       await _controller!.initialize();
       if (mounted) {
         setState(() => _isCameraReady = true);
-        if (_isAnalyzing) {
-          _startImageStream();
-        }
       }
     } catch (_) {}
   }
 
   Future<void> _switchCamera() async {
     if (_cameras.length < 2) return;
-    bool wasAnalyzing = _isAnalyzing;
-    _stopAnalysis();
     setState(() => _isCameraReady = false);
     _cameraIndex = (_cameraIndex + 1) % _cameras.length;
     await _startCamera(_cameraIndex);
-    if (wasAnalyzing) {
-       _toggleAnalysis(); // Resume parsing
-    }
   }
 
-  void _toggleAnalysis() {
-    if (!_isCameraReady) return;
-    if (_isAnalyzing) {
-      _stopAnalysis();
-    } else {
-      setState(() {
-        _isAnalyzing = true;
-      });
-      _startImageStream();
-    }
-  }
+  Future<void> _takeSnapshot() async {
+    if (!_isCameraReady || _controller == null || !_controller!.value.isInitialized) return;
+    if (_isBusy) return;
 
-  void _stopAnalysis() {
-    _controller?.stopImageStream();
     setState(() {
-      _isAnalyzing = false;
-      _isBusy = false;
-      _faceRect = null;
+      _isBusy = true;
+      _result = null;
+      _confidence = null;
     });
-  }
-
-  void _startImageStream() {
-    if (_controller == null || !_controller!.value.isInitialized) return;
-    _controller!.startImageStream((CameraImage image) {
-      _processCameraImage(image);
-    });
-  }
-
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (_isBusy || !_isAnalyzing) return;
-    _isBusy = true;
 
     try {
-      final inputImage = _createInputImage(image);
-      if (inputImage == null) {
-        _isBusy = false;
-        return;
-      }
-
+      final XFile file = await _controller!.takePicture();
+      final inputImage = InputImage.fromFilePath(file.path);
+      
       final faces = await _faceDetector.processImage(inputImage);
       if (faces.isEmpty) {
         if (mounted) {
           setState(() {
-            _faceRect = null;
+            _result = "No face detected";
+            _confidence = null;
           });
         }
-        _isBusy = false;
         return;
       }
 
       // Pick the largest face
       final face = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
-      
-      if (mounted) {
-        setState(() {
-          _faceRect = face.boundingBox;
-        });
-      }
 
       // Process emotion via TFLite
-      final cameraDesc = _cameras[_cameraIndex];
-      final res = await _mlService.processFrame(
-        image, 
-        face, 
-        cameraDesc.sensorOrientation,
-        cameraDesc.lensDirection
-      );
+      final res = await _mlService.processFile(file.path, face.boundingBox);
 
       if (res != null && mounted) {
-        final emotion = res['emotion'];
-        final conf = res['confidence'];
-        context.read<AppProvider>().setDetectedEmotion(emotion);
-        
+        final emotion = res['emotion'] as String;
+        final conf = res['confidence'] as int;
+        final provider = context.read<AppProvider>();
+        provider.setDetectedEmotion(emotion);
+
+        // Auto-log the mood — same pattern as sensor readings auto-saving
+        provider.logMood(
+          emotion: emotion,
+          notes: '',
+          source: 'camera',
+          confidence: conf,
+        );
+
         setState(() {
           _result = emotion;
           _confidence = "$conf%";
         });
+      } else {
+        if (mounted) {
+          setState(() {
+            _result = "Failed to analyze";
+            _confidence = null;
+          });
+        }
       }
 
     } catch (e) {
-      debugPrint("Error processing image: $e");
+      debugPrint("Error taking picture: $e");
     } finally {
       if (mounted) {
-        _isBusy = false;
+        setState(() {
+          _isBusy = false;
+        });
       }
     }
-  }
-
-  InputImage? _createInputImage(CameraImage image) {
-    InputImageRotation rotation;
-    final sensorOrientation = _cameras[_cameraIndex].sensorOrientation;
-    
-    switch (sensorOrientation) {
-      case 0:
-        rotation = InputImageRotation.rotation0deg;
-        break;
-      case 90:
-        rotation = InputImageRotation.rotation90deg;
-        break;
-      case 180:
-        rotation = InputImageRotation.rotation180deg;
-        break;
-      case 270:
-        rotation = InputImageRotation.rotation270deg;
-        break;
-      default:
-        rotation = InputImageRotation.rotation0deg;
-    }
-    
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
-    }
-    final bytes = allBytes.done().buffer.asUint8List();
-
-    final format = Platform.isAndroid ? InputImageFormat.nv21 : InputImageFormat.bgra8888;
-    
-    final metadata = InputImageMetadata(
-      size: Size(image.width.toDouble(), image.height.toDouble()),
-      rotation: rotation,
-      format: format,
-      bytesPerRow: image.planes[0].bytesPerRow,
-    );
-    
-    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_controller == null || !_controller!.value.isInitialized) return;
     if (state == AppLifecycleState.inactive) {
-      _stopAnalysis();
       _controller?.dispose();
       setState(() => _isCameraReady = false);
     } else if (state == AppLifecycleState.resumed) {
@@ -252,12 +179,12 @@ class _EmotionScreenState extends State<EmotionScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _stopAnalysis();
     _controller?.dispose();
     _faceDetector.close();
     _mlService.dispose();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -326,21 +253,8 @@ class _EmotionScreenState extends State<EmotionScreen>
                           ),
                         ),
 
-                  // Bounding Box overlay
-                  if (_isAnalyzing && _faceRect != null && _controller != null)
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: _FaceRectPainter(
-                          _faceRect!,
-                          _controller!.value.previewSize!,
-                          _cameras[_cameraIndex].sensorOrientation,
-                          _cameras[_cameraIndex].lensDirection,
-                        ),
-                      ),
-                    ),
-
                   // Face guide overlay
-                  if (_isCameraReady && !_isAnalyzing)
+                  if (_isCameraReady)
                     Center(
                       child: CustomPaint(
                         painter: _FaceGuidePainter(),
@@ -348,8 +262,16 @@ class _EmotionScreenState extends State<EmotionScreen>
                       ),
                     ),
 
+                  // Loading indicator
+                  if (_isBusy)
+                    const Positioned.fill(
+                      child: Center(
+                        child: CircularProgressIndicator(color: AppColors.primary),
+                      ),
+                    ),
+
                   // Result badge
-                  if (_result != null && _isAnalyzing)
+                  if (_result != null)
                     Positioned(
                       top: 16,
                       left: 0,
@@ -372,14 +294,12 @@ class _EmotionScreenState extends State<EmotionScreen>
                     const SizedBox(height: 16),
                   ],
                   FilledButton.icon(
-                    onPressed: _isCameraReady ? _toggleAnalysis : null,
-                    icon: Icon(_isAnalyzing ? Icons.stop_rounded : Icons.face_retouching_natural_rounded),
-                    label: Text(
-                      _isAnalyzing ? 'Stop Analysis' : 'Start Live Detection',
-                    ),
+                    onPressed: _isCameraReady && !_isBusy ? _takeSnapshot : null,
+                    icon: const Icon(Icons.camera_alt_rounded),
+                    label: const Text('Take Snapshot'),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
-                      backgroundColor: _isAnalyzing ? AppColors.error : AppColors.primary,
+                      backgroundColor: AppColors.primary,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -501,43 +421,7 @@ class _CameraPreviewWidget extends StatelessWidget {
   }
 }
 
-// ── Face bounding box painter ────────────────────────────────────────────────
-class _FaceRectPainter extends CustomPainter {
-  final Rect absoluteRect;
-  final Size previewSize;
-  final int orientation;
-  final CameraLensDirection direction;
 
-  _FaceRectPainter(this.absoluteRect, this.previewSize, this.orientation, this.direction);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Coordinate translation logic from camera image to screen size 
-    final double scaleX = size.width / (orientation == 90 || orientation == 270 ? previewSize.height : previewSize.width);
-    final double scaleY = size.height / (orientation == 90 || orientation == 270 ? previewSize.width : previewSize.height);
-
-    double left = absoluteRect.left * scaleX;
-    double top = absoluteRect.top * scaleY;
-    double right = absoluteRect.right * scaleX;
-    double bottom = absoluteRect.bottom * scaleY;
-
-    if (direction == CameraLensDirection.front) {
-      final tmp = left;
-      left = size.width - right;
-      right = size.width - tmp;
-    }
-
-    final paint = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
-    canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _FaceRectPainter oldDelegate) => true;
-}
 
 // ── Face guide painter ───────────────────────────────────────────────────────
 class _FaceGuidePainter extends CustomPainter {

@@ -7,6 +7,7 @@ import '../models/stress_reading.dart';
 import '../widgets/sensor_card.dart';
 import '../widgets/stress_chart.dart';
 import '../widgets/bracelet_status.dart';
+import '../widgets/ble_connect_sheet.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -201,13 +202,66 @@ class HomeScreen extends StatelessWidget {
                         // Bracelet connection card
                         BraceletStatusCard(
                           isConnected: provider.isConnected,
-                          onConnect: provider.connectBracelet,
+                          onConnect: () => showBLEConnectSheet(context),
                           onDisconnect: provider.disconnectBracelet,
                         ),
                       ],
                     ),
                   ),
                 ),
+
+                // ── Sensor Empty Warning Banner ──────────────────────────
+                if (provider.isConnected && !provider.isFingerDetected)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withAlpha(20),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.error.withAlpha(100), width: 1.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: AppColors.error,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.warning_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Sensor Empty',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                                Text(
+                                  'Please place your finger on the biometric sensor. Ensure full contact with the red-light reader to stream metrics.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    color: AppColors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 // ── Stress Score Hero ────────────────────────────────────
                 SliverToBoxAdapter(

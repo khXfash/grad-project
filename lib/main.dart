@@ -11,6 +11,7 @@ import 'screens/home_screen.dart';
 import 'screens/emotion_screen.dart';
 import 'screens/recommendations_screen.dart';
 import 'screens/log_screen.dart';
+import 'screens/profile_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,9 +84,10 @@ class _MainShellState extends State<MainShell> {
     EmotionScreen(),
     RecommendationsScreen(),
     LogScreen(),
+    ProfileScreen(),
   ];
 
-  static const _titles = ['Home', 'Emotion', 'Wellness', 'Log'];
+  static const _titles = ['Home', 'Emotion', 'Wellness', 'Log', 'Profile'];
 
   void _onNavTap(int index) {
     setState(() => _currentIndex = index);
@@ -214,6 +216,11 @@ class _MainShellState extends State<MainShell> {
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart_rounded),
             label: 'Log',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline_rounded),
+            selectedIcon: Icon(Icons.person_rounded),
+            label: 'Profile',
           ),
         ],
       ),

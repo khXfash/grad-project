@@ -69,4 +69,42 @@ class FirestoreService {
     if (_uid == null) return;
     await _moodCol.doc(id).delete();
   }
+
+  // ── User Profile ─────────────────────────────────────────────────────────
+
+  DocumentReference<Map<String, dynamic>> get _profileDoc =>
+      _db.collection('users').doc(_uid).collection('profile').doc('data');
+
+  Future<void> saveProfile(Map<String, dynamic> data) async {
+    if (_uid == null) return;
+    await _profileDoc.set(data, SetOptions(merge: true));
+  }
+
+  Future<Map<String, dynamic>?> getProfile() async {
+    if (_uid == null) return null;
+    final snap = await _profileDoc.get();
+    return snap.exists ? snap.data() : null;
+  }
+
+  // ── Weekly Report ─────────────────────────────────────────────────────────
+
+  Future<List<StressReading>> getReadingsSince(DateTime since) async {
+    if (_uid == null) return [];
+    final snap = await _stressCol
+        .where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .orderBy('timestamp', descending: false)
+        .get();
+    return snap.docs.map((d) => StressReading.fromMap(d.id, d.data())).toList();
+  }
+
+  Future<List<MoodLog>> getMoodLogsSince(DateTime since) async {
+    if (_uid == null) return [];
+    final snap = await _moodCol
+        .where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .orderBy('timestamp', descending: false)
+        .get();
+    return snap.docs.map((d) => MoodLog.fromMap(d.id, d.data())).toList();
+  }
 }

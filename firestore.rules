@@ -1,8 +1,30 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
+    
+    // 1. Lock down the entire database by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Allow users to manage THEIR OWN data only
+    // This assumes your collections are named after the user's UID 
+    // or contain a 'userId' field.
+    match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow the user to access their sub-collections (like emotions or logs)
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // 3. Optional: Global Read-Only data
+    // Use this for things like "App Config" or "Public Profiles"
+    match /public_data/{docId} {
+      allow read: if true;
+      allow write: if false; // Only you can edit this manually in the console
     }
   }
 }

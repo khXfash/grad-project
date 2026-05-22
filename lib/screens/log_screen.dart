@@ -308,6 +308,7 @@ class _MoodLogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCamera = log.source == 'camera';
     return Dismissible(
       key: Key(log.id),
       direction: DismissDirection.endToStart,
@@ -351,6 +352,32 @@ class _MoodLogCard extends StatelessWidget {
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: AppColors.onSurface,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      // Source badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isCamera
+                              ? AppColors.primary.withAlpha(20)
+                              : AppColors.onSurfaceVariant.withAlpha(20),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          isCamera
+                              ? '📷 ${log.confidence != null ? "${log.confidence}% conf." : "Camera"}'
+                              : '✏️ Manual',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: isCamera
+                                ? AppColors.primary
+                                : AppColors.onSurfaceVariant,
+                          ),
                         ),
                       ),
                       const Spacer(),
