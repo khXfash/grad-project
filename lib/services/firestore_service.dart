@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/stress_reading.dart';
@@ -24,6 +25,30 @@ class FirestoreService {
   Future<void> saveReading(StressReading reading) async {
     if (_uid == null) return;
     await _stressCol.add(reading.toMap());
+  }
+
+  /// Deletes stress readings older than 7 days to keep Firestore storage clean.
+  /// Limits to 100 items per prune run to ensure safe batch size limits.
+  Future<void> pruneOldReadings() async {
+    if (_uid == null) return;
+    try {
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      final oldDocs = await _stressCol
+          .where('timestamp', isLessThan: Timestamp.fromDate(sevenDaysAgo))
+          .limit(100)
+          .get();
+
+      if (oldDocs.docs.isNotEmpty) {
+        final batch = _db.batch();
+        for (var doc in oldDocs.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+        log("FirestoreService: Pruned ${oldDocs.docs.length} old readings.");
+      }
+    } catch (e) {
+      log("FirestoreService error pruning: $e");
+    }
   }
 
   Stream<List<StressReading>> watchReadings({int limit = 30}) {

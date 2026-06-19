@@ -125,6 +125,9 @@ class AppProvider extends ChangeNotifier {
       _recentReadings.clear();
       _recentReadings.addAll(readings.reversed);
       notifyListeners();
+      
+      // Async background cleanup of records older than 7 days
+      _firestore.pruneOldReadings();
     } catch (_) {
       // Firestore not available yet — silently ignore
     }

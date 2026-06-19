@@ -37,5 +37,6 @@ flutter:
 
   assets:
     - .env
-    - assets/models/emotion_model.tflite
     - assets/models/wesad_hardware_classifier.tflite
+    - assets/models/lightgbm_model.json
+    - assets/models/emotion_model (2).tflite

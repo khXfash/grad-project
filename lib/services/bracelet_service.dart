@@ -6,6 +6,9 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/stress_reading.dart';
 import 'wesad_ml_service.dart';
+import 'stress_ai_service.dart';
+import 'lightgbm_ml_service.dart';
+import 'emotion_ml_service.dart';
 
 class BraceletService {
   static final BraceletService _instance = BraceletService._internal();
@@ -16,6 +19,9 @@ class BraceletService {
 
   // WESAD AI model service
   final WesadMlService _wesadService = WesadMlService();
+
+  // LightGBM AI model service
+  final LightGbmMlService _lightGbmService = LightGbmMlService();
 
   // Connection & Scan status
   bool _isConnected = false;
@@ -46,6 +52,7 @@ class BraceletService {
   DateTime? _lastTempSampleTime;
   DateTime? _lastHrSampleTime;
   DateTime? _lastAccelSampleTime;
+  DateTime? _lastPredictionTime;
 
   // Incoming line buffer for BLE UART chunks
   String _bleLineBuffer = "";
@@ -73,6 +80,7 @@ class BraceletService {
 
   Future<void> _initMl() async {
     await _wesadService.initialize();
+    await _lightGbmService.initialize();
   }
 
   // ── BLE SCANNING ──────────────────────────────────────────────────────────
@@ -204,6 +212,7 @@ class BraceletService {
     _lastTempSampleTime = null;
     _lastHrSampleTime = null;
     _lastAccelSampleTime = null;
+    _lastPredictionTime = null;
 
     // In simulated mode, we generate a high-speed data stream every 100ms
     // to simulate the ESP32 ~10Hz transmission, allowing realistic downsampling
@@ -237,6 +246,7 @@ class BraceletService {
     _isConnected = false;
     _isMockMode = false;
     _isFingerDetected = false;
+    _lastPredictionTime = null;
 
     // Cancel BLE subscriptions
     _charSub?.cancel();
@@ -365,30 +375,66 @@ class BraceletService {
     _accelY = ay;
     _accelZ = az;
 
-    // 4. Run the WESAD multi-modal classifier
-    List<double> probs = await _wesadService.predict(
-      tempHistory: List.from(_tempHistory),
-      hrHistory: List.from(_hrHistory),
-      accelHistory: List.from(_accelHistory),
-    );
+    // 4. Run the WESAD multi-modal classifier & emit prediction at a throttled rate
+    if (_lastPredictionTime == null ||
+        now.difference(_lastPredictionTime!).inSeconds >= 2) {
+      _lastPredictionTime = now;
 
-    // WESAD class 1 is Stress state. We scale the Stress probability (0.0 - 1.0) to (0 - 100)
-    double stressProb = probs[1];
-    int score = (stressProb * 100).round().clamp(0, 100);
+      int score = 0;
+      if (_lightGbmService.isInitialized) {
+        try {
+          final List<double> features = FeatureExtractor.extractFeatures(
+            tempHistory: List.from(_tempHistory),
+            hrHistory: List.from(_hrHistory),
+            accelHistory: List.from(_accelHistory),
+          );
+          final double stressProb = _lightGbmService.predict(features);
+          score = (stressProb * 100).round().clamp(0, 100);
+        } catch (e) {
+          log("BraceletService: LightGBM AI prediction failed: $e");
+        }
+      }
 
-    // Emit stress reading
-    final reading = StressReading(
-      id: now.millisecondsSinceEpoch.toString(),
-      timestamp: now,
-      heartRate: _heartRate,
-      skinTemp: _skinTemp,
-      accelX: _accelX,
-      accelY: _accelY,
-      accelZ: _accelZ,
-      stressScore: score,
-    );
+      // Fallback 1: WESAD model (if LightGBM is not initialized or returned 0 stress)
+      if (score == 0 && _wesadService.isInitialized) {
+        try {
+          List<double> probs = await _wesadService.predict(
+            tempHistory: List.from(_tempHistory),
+            hrHistory: List.from(_hrHistory),
+            accelHistory: List.from(_accelHistory),
+          );
+          double stressProb = probs[1];
+          score = (stressProb * 100).round().clamp(0, 100);
+        } catch (e) {
+          log("BraceletService: WESAD AI prediction failed: $e");
+        }
+      }
 
-    _controller.add(reading);
+      // Fallback 2: Rule-based heuristic
+      if (score == 0) {
+        score = StressAiService.calculateStressScore(
+          heartRate: hr,
+          skinTemp: temp,
+          accelX: ax,
+          accelY: ay,
+          accelZ: az,
+        );
+      }
+
+      // Emit stress reading
+      final reading = StressReading(
+        id: now.millisecondsSinceEpoch.toString(),
+        timestamp: now,
+        heartRate: _heartRate,
+        skinTemp: _skinTemp,
+        accelX: _accelX,
+        accelY: _accelY,
+        accelZ: _accelZ,
+        stressScore: score,
+      );
+
+      _controller.add(reading);
+    }
   }
 
   void dispose() {
@@ -397,5 +443,6 @@ class BraceletService {
     _scanSub?.cancel();
     _controller.close();
     _wesadService.dispose();
+    _lightGbmService.dispose();
   }
 }

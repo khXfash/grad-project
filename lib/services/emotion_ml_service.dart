@@ -26,7 +26,7 @@ class EmotionMlService {
     if (_isInitialized) return;
     try {
       final options = InterpreterOptions()..threads = 4;
-      _interpreter = await Interpreter.fromAsset('assets/models/emotion_model.tflite', options: options);
+      _interpreter = await Interpreter.fromAsset('assets/models/emotion_model (2).tflite', options: options);
       _isInitialized = true;
       log("EmotionMlService: Initialized successfully");
     } catch (e) {
