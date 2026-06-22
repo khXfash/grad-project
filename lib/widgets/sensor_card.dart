@@ -45,29 +45,33 @@ class SensorCard extends StatelessWidget {
             child: Icon(icon, color: color, size: 16),
           ),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
-                style: GoogleFonts.manrope(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onSurface,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  unit,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 10,
-                    color: AppColors.onSurfaceVariant,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.bottomLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  style: GoogleFonts.manrope(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 2),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    unit,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 10,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 2),
           Text(

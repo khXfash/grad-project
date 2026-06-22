@@ -130,7 +130,7 @@ class _RecommendationsScreenState extends State<RecommendationsScreen> {
                         const SizedBox(height: 6),
                         Text(
                           provider.latestReading != null
-                              ? 'Based on your stress score: ${provider.latestReading!.stressScore}/100'
+                              ? 'Based on your stress status: ${provider.isStressed ? "Stressed" : "Calm"}'
                               : 'Connect your bracelet for personalized tips',
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 13,

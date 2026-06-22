@@ -12,139 +12,6 @@ import '../widgets/ble_connect_sheet.dart';
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  void _showLogMoodSheet(BuildContext context) {
-    final TextEditingController notesController = TextEditingController();
-    String selectedEmotion = 'calm';
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => Container(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            16,
-            24,
-            MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          decoration: const BoxDecoration(
-            color: AppColors.surfaceContainerLowest,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.outlineVariant,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Log Your Mood',
-                style: GoogleFonts.manrope(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onSurface,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'How are you feeling right now?',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 14,
-                  color: AppColors.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final e in [
-                    ('happy', '😊'),
-                    ('calm', '😌'),
-                    ('sad', '😢'),
-                    ('anxious', '😰'),
-                    ('angry', '😤'),
-                    ('neutral', '😐'),
-                  ])
-                    GestureDetector(
-                      onTap: () => setState(() => selectedEmotion = e.$1),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: selectedEmotion == e.$1
-                              ? AppColors.primaryContainer
-                              : AppColors.surfaceContainer,
-                          borderRadius: BorderRadius.circular(999),
-                          border: selectedEmotion == e.$1
-                              ? Border.all(color: AppColors.primary, width: 2)
-                              : null,
-                        ),
-                        child: Text(
-                          '${e.$2} ${e.$1[0].toUpperCase()}${e.$1.substring(1)}',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: selectedEmotion == e.$1
-                                ? AppColors.onPrimaryContainer
-                                : AppColors.onSurface,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Add a note (optional)...',
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () async {
-                    final provider = context.read<AppProvider>();
-                    await provider.logMood(
-                      emotion: selectedEmotion,
-                      notes: notesController.text.trim(),
-                    );
-                    if (ctx.mounted) {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Mood logged! 🌿'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Save Mood'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -263,6 +130,72 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
 
+                // ── Critical Stress Warning Banner ───────────────────────
+                if (provider.isCriticalStress)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withAlpha(20),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.error, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.error.withAlpha(15),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(
+                              color: AppColors.error,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.bolt_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'CRITICAL STRESS DETECTED',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.error,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  provider.reportEmail.isNotEmpty
+                                      ? 'An emergency alert email has been sent automatically to your doctor (${provider.reportEmail}). Please take deep breaths.'
+                                      : 'No doctor\'s email is set. Go to your Profile tab to configure it so alerts can be sent automatically.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.onSurface,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // ── Stress Score Hero ────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
@@ -361,47 +294,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
 
-                // ── Quick Actions ─────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Quick Actions',
-                          style: GoogleFonts.manrope(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _ActionButton(
-                                icon: Icons.edit_note_rounded,
-                                label: 'Log Mood',
-                                onTap: () => _showLogMoodSheet(context),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _ActionButton(
-                                icon: Icons.auto_awesome_rounded,
-                                label: 'Get Tips',
-                                onTap: () {
-                                  DefaultTabController.of(context).animateTo(2);
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+
               ],
             );
           },
@@ -426,22 +319,33 @@ class _StressHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final score = reading?.stressScore ?? 0;
+    final provider = context.watch<AppProvider>();
     final hasData = reading != null;
+    final isStressed = provider.isStressed;
+
+    // Define colors and gradient based on stress status
+    final List<Color> gradientColors;
+    if (!hasData) {
+      gradientColors = [AppColors.primary, const Color(0xFF005D5F)];
+    } else if (isStressed) {
+      gradientColors = [AppColors.stressHigh, const Color(0xFFC62828)];
+    } else {
+      gradientColors = [const Color(0xFF2E7D32), AppColors.stressLow];
+    }
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, Color(0xFF005D5F)],
+        gradient: LinearGradient(
+          colors: gradientColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withAlpha(50),
+            color: (hasData && isStressed ? AppColors.stressHigh : AppColors.primary).withAlpha(50),
             blurRadius: 32,
             offset: const Offset(0, 12),
           ),
@@ -451,7 +355,7 @@ class _StressHeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Current Stress Level',
+            'Current Stress Status',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
               fontWeight: FontWeight.w500,
@@ -460,61 +364,47 @@ class _StressHeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                hasData ? '$score' : '--',
+                hasData ? (isStressed ? 'Stressed 😤' : 'Calm 😌') : '--',
                 style: GoogleFonts.manrope(
-                  fontSize: 64,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 36,
+                  fontWeight: FontWeight.w800,
                   color: Colors.white,
-                  height: 1,
+                  height: 1.2,
                 ),
               ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
-                  hasData ? '/100' : '',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 16,
-                    color: Colors.white70,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (hasData)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.stressColor(score).withAlpha(200),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    AppColors.stressLabel(score),
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
             ],
           ),
           const SizedBox(height: 16),
           if (hasData) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: score / 100,
-                backgroundColor: Colors.white24,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  AppColors.stressColor(score),
-                ),
-                minHeight: 8,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(30),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Biometrics: ${reading!.stressScore >= 50 ? "Stressed" : "Calm"}  •  Face: ${provider.detectedEmotion}',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
           ] else ...[
@@ -532,51 +422,4 @@ class _StressHeroCard extends StatelessWidget {
   }
 }
 
-// ── Action Button ────────────────────────────────────────────────────────────
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceContainer,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                color: AppColors.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: AppColors.onPrimaryContainer, size: 22),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.onSurface,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

@@ -163,8 +163,10 @@ class _StressReadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = AppColors.stressColor(reading.stressScore);
-    final label = AppColors.stressLabel(reading.stressScore);
+    final isStressed = reading.stressScore >= 50;
+    final color = isStressed ? AppColors.stressHigh : AppColors.stressLow;
+    final label = isStressed ? 'Stressed' : 'Calm';
+    final emoji = isStressed ? '😤' : '😌';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -181,7 +183,7 @@ class _StressReadingCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Stress score circle
+          // Stress status emoji circle
           Container(
             width: 56,
             height: 56,
@@ -191,11 +193,9 @@ class _StressReadingCard extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                '${reading.stressScore}',
-                style: GoogleFonts.manrope(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: color,
+                emoji,
+                style: const TextStyle(
+                  fontSize: 28,
                 ),
               ),
             ),
@@ -213,25 +213,6 @@ class _StressReadingCard extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: AppColors.onSurface,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color.withAlpha(30),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '${reading.stressScore}/100',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: color,
-                        ),
                       ),
                     ),
                   ],
@@ -403,10 +384,10 @@ class _MoodLogCard extends StatelessWidget {
                   ],
                   const SizedBox(height: 6),
                   Text(
-                    'Stress at time: ${log.stressScore}/100',
+                    'Stress status: ${log.stressScore >= 50 ? "Stressed" : "Calm"}',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 11,
-                      color: AppColors.primary,
+                      color: log.stressScore >= 50 ? AppColors.stressHigh : AppColors.stressLow,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

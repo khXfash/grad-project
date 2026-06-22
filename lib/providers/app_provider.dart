@@ -1,19 +1,24 @@
 import 'dart:async';
+import 'dart:developer';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
 import '../models/stress_reading.dart';
 import '../models/mood_log.dart';
 import '../services/bracelet_service.dart';
 import '../services/firestore_service.dart';
 import '../services/gemini_service.dart';
+import '../helpers/stress_evaluator.dart';
+
 
 class AppProvider extends ChangeNotifier {
+  // ── Core services ────────────────────────────────────────
   final _bracelet = BraceletService();
   final _firestore = FirestoreService();
   final _gemini = GeminiService();
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth ─────────────────────────────────────────────────
   User? _currentUser;
   bool _authLoading = true;
 
@@ -21,11 +26,22 @@ class AppProvider extends ChangeNotifier {
   bool get authLoading => _authLoading;
   bool get isAuthenticated => _currentUser != null;
 
-  // ── Bracelet ──────────────────────────────────────────────────────────────
+  // ── Profile ────────────────────────────────────────────────
+  String _profileName = '';
+  String _doctorEmail = '';
+  bool _profileLoading = false;
+
+  String get profileName => _profileName;
+  String get doctorEmail => _doctorEmail;
+  String get reportEmail => _doctorEmail; // backward compatibility
+  bool get profileLoading => _profileLoading;
+
+  // ── Bracelet / sensor data ─────────────────────────────────
   StressReading? _latestReading;
   final List<StressReading> _recentReadings = [];
   StreamSubscription<StressReading>? _braceletSub;
   bool _savingReadings = true;
+  DateTime? _lastAlertSentTime;
 
   StressReading? get latestReading => _latestReading;
   List<StressReading> get recentReadings => List.unmodifiable(_recentReadings);
@@ -35,11 +51,10 @@ class AppProvider extends ChangeNotifier {
   bool get isScanning => _bracelet.isScanning;
   List<dynamic> get scanResults => _bracelet.scanResults;
   bool get savingReadings => _savingReadings;
-
   int get currentHR => _bracelet.currentHeartRate;
   double get currentTemp => _bracelet.currentSkinTemp;
 
-  // ── Recommendations ───────────────────────────────────────────────────────
+  // ── Recommendations ───────────────────────────────────────
   String? _recommendations;
   bool _recommendationsLoading = false;
   String? _recommendationsError;
@@ -48,46 +63,71 @@ class AppProvider extends ChangeNotifier {
   bool get recommendationsLoading => _recommendationsLoading;
   String? get recommendationsError => _recommendationsError;
 
-  // ── Emotion ───────────────────────────────────────────────────────────────
+  // ── Emotion detection ─────────────────────────────────────
   String _detectedEmotion = 'Unknown';
   String get detectedEmotion => _detectedEmotion;
 
-  // ── Profile ───────────────────────────────────────────────────────────────
-  String _profileName = '';
-  String _reportEmail = '';
-  final bool _profileLoading = false;
+  double get faceStressProbability {
+    switch (_detectedEmotion) {
+      case 'Fear':
+        return 0.90;
+      case 'Anger':
+        return 0.85;
+      case 'Disgust':
+        return 0.70;
+      case 'Sad':
+        return 0.60;
+      case 'Surprise':
+        return 0.30;
+      case 'Neutral':
+        return 0.10;
+      case 'Happy':
+        return 0.00;
+      default:
+        return 0.00;
+    }
+  }
 
-  String get profileName => _profileName;
-  String get reportEmail => _reportEmail;
-  bool get profileLoading => _profileLoading;
+  // ── Stress evaluation ─────────────────────────────────────
+    // Stress evaluation delegated to helper
+  bool get isStressed => StressEvaluator.isStressed(
+    latestReading: _latestReading,
+    detectedEmotion: _detectedEmotion,
+    faceStressProbability: faceStressProbability,
+  );
 
-  // ── Gemini ready ─────────────────────────────────────────────────────────
-  bool get geminiReady => _gemini.isInitialized;
+  bool get isCriticalStress => StressEvaluator.isCriticalStress(
+    latestReading: _latestReading,
+    detectedEmotion: _detectedEmotion,
+    faceStressProbability: faceStressProbability,
+  );
 
+
+
+  // ── Constructor ─────────────────────────────────────────────
   AppProvider() {
     _initAuth();
     _initGemini();
+    _loadProfile();
   }
 
+  // ── Firebase auth handling ─────────────────────────────────
   Future<void> _initAuth() async {
     final auth = FirebaseAuth.instance;
-
-    // Safety fallback: if auth takes > 8s (e.g. Firebase not provisioned), unblock UI anyway
+    // Safety fallback: unblock UI after 8 seconds if auth hangs
     Future.delayed(const Duration(seconds: 8), () {
       if (_authLoading) {
         _authLoading = false;
         notifyListeners();
       }
     });
-
     try {
       auth.authStateChanges().listen(
         (user) async {
           if (user == null) {
             try {
               await auth.signInAnonymously();
-            } catch (e) {
-              // Anonymous auth failed (e.g. not enabled yet) — unblock UI
+            } catch (_) {
               _authLoading = false;
               notifyListeners();
             }
@@ -96,7 +136,6 @@ class AppProvider extends ChangeNotifier {
             _authLoading = false;
             notifyListeners();
             _loadHistory();
-            _loadProfile();
           }
         },
         onError: (_) {
@@ -104,7 +143,7 @@ class AppProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
-    } catch (e) {
+    } catch (_) {
       _authLoading = false;
       notifyListeners();
     }
@@ -119,49 +158,46 @@ class AppProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── Firestore interactions ─────────────────────────────────
   Future<void> _loadHistory() async {
     try {
       final readings = await _firestore.getReadings(limit: 20);
       _recentReadings.clear();
       _recentReadings.addAll(readings.reversed);
       notifyListeners();
-      
-      // Async background cleanup of records older than 7 days
+      // Cleanup old records in background
       _firestore.pruneOldReadings();
-    } catch (_) {
-      // Firestore not available yet — silently ignore
-    }
+    } catch (_) {}
   }
 
   Future<void> _loadProfile() async {
+    _profileLoading = true;
+    notifyListeners();
     try {
       final data = await _firestore.getProfile();
       if (data != null) {
         _profileName = data['name'] as String? ?? '';
-        _reportEmail = data['reportEmail'] as String? ?? '';
-        notifyListeners();
+        _doctorEmail =
+            data['doctorEmail'] as String? ??
+            data['reportEmail'] as String? ??
+            '';
       }
     } catch (_) {}
-  }
-
-  Future<void> saveProfile({required String name, required String email}) async {
-    _profileName = name;
-    _reportEmail = email;
+    _profileLoading = false;
     notifyListeners();
-    await _firestore.saveProfile({'name': name, 'reportEmail': email});
   }
 
-  /// Returns [stressReadings, moodLogs] for the past 7 days.
-  Future<(List<StressReading>, List<MoodLog>)> getWeeklyReport() async {
-    final since = DateTime.now().subtract(const Duration(days: 7));
-    final readings = await _firestore.getReadingsSince(since);
-    final moods = await _firestore.getMoodLogsSince(since);
-    return (readings, moods);
+  Future<void> saveProfile({
+    required String name,
+    required String email,
+  }) async {
+    _profileName = name;
+    _doctorEmail = email;
+    notifyListeners();
+    await _firestore.saveProfile({'name': name, 'doctorEmail': email});
   }
 
-  // ── Email / Password auth ─────────────────────────────────────────────────
-
-  /// Returns null on success, or an error message string on failure.
+  // ── Authentication helpers ─────────────────────────────────
   Future<String?> signInWithEmail(String email, String password) async {
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -231,6 +267,7 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  // ── Bracelet control ───────────────────────────────────────
   void connectBracelet() {
     _braceletSub?.cancel();
     _bracelet.connect();
@@ -273,6 +310,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Reading handling ─────────────────────────────────────
   void _onReading(StressReading reading) {
     _latestReading = reading;
     _recentReadings.add(reading);
@@ -282,10 +320,33 @@ class AppProvider extends ChangeNotifier {
     if (_savingReadings && _currentUser != null) {
       _firestore.saveReading(reading);
     }
+    _checkEmergencyAlert(reading);
   }
 
-  // ── Mood logging ──────────────────────────────────────────────────────────
+  // ── Emergency alert ─────────────────────────────────────
+  void _checkEmergencyAlert(StressReading reading) {
+    if (isCriticalStress && _doctorEmail.isNotEmpty) {
+      final now = DateTime.now();
+      if (_lastAlertSentTime == null ||
+          now.difference(_lastAlertSentTime!).inMinutes >= 15) {
+        _lastAlertSentTime = now;
+        _firestore.sendEmergencyEmail(
+          recipientEmail: _doctorEmail,
+          patientName: _profileName.isNotEmpty ? _profileName : 'Patient',
+          heartRate: reading.heartRate,
+          skinTemp: reading.skinTemp,
+          emotion: _detectedEmotion,
+        );
+        log(
+          'AppProvider: Automatically triggered emergency alert email to $_doctorEmail',
+        );
+      }
+    }
+  }
 
+
+
+  // ── Mood logging ───────────────────────────────────────
   Future<void> logMood({
     required String emotion,
     required String notes,
@@ -304,27 +365,20 @@ class AppProvider extends ChangeNotifier {
     await _firestore.saveMoodLog(log);
   }
 
-  // ── Emotion detection ─────────────────────────────────────────────────────
-
   void setDetectedEmotion(String emotion) {
     _detectedEmotion = emotion;
     notifyListeners();
   }
 
-  // ── Gemini recommendations ────────────────────────────────────────────────
-
+  // ── Gemini recommendations ───────────────────────────────
   Future<void> fetchRecommendations() async {
     if (_recommendationsLoading) return;
     _recommendationsLoading = true;
     _recommendationsError = null;
     notifyListeners();
-
     try {
-      final score = _latestReading?.stressScore ?? 50;
-      final label = _stressLabel(score);
       _recommendations = await _gemini.getStressRecommendations(
-        stressScore: score,
-        stressLabel: label,
+        isStressed: isStressed,
         emotion: _detectedEmotion == 'Unknown' ? null : _detectedEmotion,
       );
     } catch (e) {
@@ -337,33 +391,23 @@ class AppProvider extends ChangeNotifier {
 
   Future<String> sendChatMessage(String message) async {
     try {
-      final score = _latestReading?.stressScore ?? 50;
-      return await _gemini.chat(message, score);
+      return await _gemini.chat(message, isStressed);
     } catch (e) {
-      return 'Sorry, I couldn\'t process that. Please check your API key.';
+      return "Sorry, I couldn't process that. Please check your API key.";
     }
   }
 
-  String _stressLabel(int score) {
-    if (score < 33) return 'Calm';
-    if (score < 50) return 'Mild';
-    if (score < 66) return 'Moderate';
-    if (score < 80) return 'High';
-    return 'Severe';
+  // ── Firestore streams ─────────────────────────────────────
+  // ── Weekly Report ─────────────────────────────────────
+  Future<(List<StressReading>, List<MoodLog>)> getWeeklyReport() async {
+    final since = DateTime.now().subtract(const Duration(days: 7));
+    final readings = await _firestore.getReadingsSince(since);
+    final moods = await _firestore.getMoodLogsSince(since);
+    return (readings, moods);
   }
 
-  // ── Firestore streams ─────────────────────────────────────────────────────
-
   Stream<List<StressReading>> watchReadings() => _firestore.watchReadings();
-
   Stream<List<MoodLog>> watchMoodLogs() => _firestore.watchMoodLogs();
 
   Future<void> deleteMoodLog(String id) => _firestore.deleteMoodLog(id);
-
-  @override
-  void dispose() {
-    _braceletSub?.cancel();
-    _bracelet.dispose();
-    super.dispose();
-  }
 }

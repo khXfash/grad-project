@@ -8,7 +8,7 @@ import '../models/stress_reading.dart';
 import 'wesad_ml_service.dart';
 import 'stress_ai_service.dart';
 import 'lightgbm_ml_service.dart';
-import 'emotion_ml_service.dart';
+import 'feature_extractor.dart';
 
 class BraceletService {
   static final BraceletService _instance = BraceletService._internal();

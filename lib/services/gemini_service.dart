@@ -17,8 +17,7 @@ class GeminiService {
   bool get isInitialized => _model != null;
 
   Future<String> getStressRecommendations({
-    required int stressScore,
-    required String stressLabel,
+    required bool isStressed,
     String? emotion,
   }) async {
     if (_model == null) {
@@ -31,9 +30,11 @@ class GeminiService {
         ? 'The user\'s detected emotion is $emotion.'
         : '';
 
+    final stressLabel = isStressed ? 'Stressed' : 'Calm';
+
     final prompt =
         '''
-You are a compassionate mental wellness coach. The user's current stress level is $stressScore/100 ($stressLabel). $emotionContext
+You are a compassionate mental wellness coach. The user's current stress state is $stressLabel. $emotionContext
 
 Provide exactly 3 practical, specific, and actionable stress-relief recommendations. Format your response as follows:
 
@@ -46,24 +47,26 @@ Provide exactly 3 practical, specific, and actionable stress-relief recommendati
 🌟 **Tip 3: [Short Title]**
 [2-3 sentence description of the technique]
 
-Keep the tone warm, encouraging, and supportive. Tailor the intensity of the recommendations to the stress level (gentle for low stress, more active interventions for high stress).
+Keep the tone warm, encouraging, and supportive. Tailor the intensity of the recommendations to the stress level (gentle for calm, more active interventions for stressed).
 ''';
 
     final response = await _model!.generateContent([Content.text(prompt)]);
     return response.text ?? 'Unable to generate recommendations at this time.';
   }
 
-  Future<String> chat(String message, int currentStressScore) async {
+  Future<String> chat(String message, bool isStressed) async {
     if (_model == null) {
       throw Exception('Gemini not initialized.');
     }
 
+    final stressLabel = isStressed ? 'Stressed' : 'Calm';
+
     final prompt =
         '''
-You are a compassionate mental wellness assistant. The user's current stress score is $currentStressScore/100.
+You are a compassionate mental wellness assistant. The user's current stress state is $stressLabel.
 User says: "$message"
 
-Respond helpfully and empathetically in 2-3 sentences. If relevant, relate your response to their stress level.
+Respond helpfully and empathetically in 2-3 sentences. If relevant, relate your response to their stress state.
 ''';
 
     final response = await _model!.generateContent([Content.text(prompt)]);

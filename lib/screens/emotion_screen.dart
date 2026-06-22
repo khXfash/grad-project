@@ -33,12 +33,13 @@ class _EmotionScreenState extends State<EmotionScreen>
   String? _confidence;
 
   static const _emotions = [
-    ('Calm', '😌', AppColors.stressLow),
-    ('Happy', '😊', Color(0xFF66BB6A)),
     ('Neutral', '😐', AppColors.secondary),
-    ('Anxious', '😰', AppColors.stressMedium),
+    ('Anger', '😤', AppColors.stressHigh),
+    ('Disgust', '🤢', AppColors.stressHigh),
+    ('Fear', '😰', AppColors.stressMedium),
+    ('Happy', '😊', Color(0xFF66BB6A)),
     ('Sad', '😢', Color(0xFF42A5F5)),
-    ('Stressed', '😤', AppColors.stressHigh),
+    ('Surprise', '😲', Color(0xFF9C27B0)),
   ];
 
   @override
@@ -128,7 +129,7 @@ class _EmotionScreenState extends State<EmotionScreen>
       final res = await _mlService.processFile(file.path, face.boundingBox);
 
       if (res != null && mounted) {
-        final emotion = res['emotion'] as String;
+        final emotion = res['raw'] as String;
         final conf = res['confidence'] as int;
         final provider = context.read<AppProvider>();
         provider.setDetectedEmotion(emotion);

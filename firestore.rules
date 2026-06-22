@@ -26,5 +26,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false; // Only you can edit this manually in the console
     }
+
+    // 4. Allow authenticated users to trigger emails via the Trigger Email extension
+    match /mail/{mailId} {
+      allow create: if request.auth != null;
+    }
   }
 }

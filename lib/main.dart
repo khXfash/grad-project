@@ -23,18 +23,18 @@ Future<void> main() async {
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppProvider(),
-      child: const BraceletSyncApp(),
+      child: const EmoHealthApp(),
     ),
   );
 }
 
-class BraceletSyncApp extends StatelessWidget {
-  const BraceletSyncApp({super.key});
+class EmoHealthApp extends StatelessWidget {
+  const EmoHealthApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BraceletSync',
+      title: 'EmoHealth',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       home: const _AppRouter(),

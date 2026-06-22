@@ -57,7 +57,7 @@ class _AuthScreenState extends State<AuthScreen>
               ),
               const SizedBox(height: 24),
               Text(
-                'BraceletSync',
+                'EmoHealth',
                 style: GoogleFonts.manrope(
                   fontSize: 32,
                   fontWeight: FontWeight.w700,

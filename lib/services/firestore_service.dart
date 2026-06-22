@@ -3,6 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/stress_reading.dart';
 import '../models/mood_log.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mailer/mailer.dart';
+import 'package:mailer/smtp_server.dart';
 
 class FirestoreService {
   static final FirestoreService _instance = FirestoreService._internal();
@@ -131,5 +135,74 @@ class FirestoreService {
         .orderBy('timestamp', descending: false)
         .get();
     return snap.docs.map((d) => MoodLog.fromMap(d.id, d.data())).toList();
+  }
+
+  Future<void> sendEmergencyEmail({
+    required String recipientEmail,
+    required String patientName,
+    required int heartRate,
+    required double skinTemp,
+    required String emotion,
+  }) async {
+    final String subject = 'URGENT: Critical Stress Alert - $patientName';
+    final String bodyText = '''
+URGENT MEDICAL ALERT: Critical stress levels detected for patient $patientName.
+
+Current Metrics:
+- Status: Critical Stress Detected
+- Heart Rate: $heartRate bpm
+- Skin Temp: ${skinTemp.toStringAsFixed(1)}°C
+- Facial Emotion: $emotion
+- Timestamp: ${DateTime.now().toLocal().toString()}
+
+Please review this alert as soon as possible.
+''';
+
+    // 1. Save alert record to Firestore for tracking history
+    try {
+      final mailDoc = {
+        'to': recipientEmail,
+        'message': {
+          'subject': subject,
+          'text': bodyText,
+        },
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      await _db.collection('mail').add(mailDoc);
+      log("FirestoreService: Saved alert record to Firestore 'mail' collection.");
+    } catch (e) {
+      log("FirestoreService: Failed to save record to Firestore: $e");
+    }
+
+    // 2. Send email directly using SMTP in the background automatically
+    final senderEmail = dotenv.env['SENDER_EMAIL'] ?? '';
+    final appPassword = dotenv.env['SENDER_APP_PASSWORD'] ?? '';
+
+    if (senderEmail.isEmpty || appPassword.isEmpty) {
+      log("FirestoreService: SENDER_EMAIL or SENDER_APP_PASSWORD is not set in .env. Skipping SMTP send.");
+      throw Exception("SMTP sender credentials are not configured in the app. Please add SENDER_EMAIL and SENDER_APP_PASSWORD to .env");
+    }
+
+    final smtpServer = gmail(senderEmail, appPassword);
+
+    final message = Message()
+      ..from = Address(senderEmail, 'EmoHealth Alerts')
+      ..recipients.add(recipientEmail)
+      ..subject = subject
+      ..text = bodyText;
+
+    try {
+      await send(message, smtpServer);
+      log('FirestoreService: Emergency alert email successfully sent directly to $recipientEmail via Gmail SMTP!');
+    } on MailerException catch (e) {
+      log('FirestoreService SMTP error: $e');
+      for (var p in e.problems) {
+        log('SMTP Problem: ${p.code} - ${p.msg}');
+      }
+      throw Exception("Failed to send email: ${e.toString()}");
+    } catch (e) {
+      log('FirestoreService General error sending email: $e');
+      throw Exception("General email sending error: $e");
+    }
   }
 }

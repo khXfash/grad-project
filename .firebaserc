@@ -1,5 +1,7 @@
 {
-  "projects": {},
+  "projects": {
+    "staging": "bracelet-sync-health"
+  },
   "targets": {},
   "etags": {}
 }
