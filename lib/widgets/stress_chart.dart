@@ -13,7 +13,7 @@ class StressChartWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final spots = <FlSpot>[];
     for (var i = 0; i < readings.length; i++) {
-      spots.add(FlSpot(i.toDouble(), readings[i].stressScore >= 50 ? 1.0 : 0.0));
+      spots.add(FlSpot(i.toDouble(), readings[i].stressScore.toDouble()));
     }
 
     final stressedCount = readings.where((r) => r.stressScore >= 50).length;
@@ -95,37 +95,21 @@ class StressChartWidget extends StatelessWidget {
                   leftTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      interval: 1,
-                      reservedSize: 56,
+                      interval: 20,
+                      reservedSize: 44,
                       getTitlesWidget: (v, _) {
-                        if (v == 0.0) {
-                          return const Padding(
-                            padding: EdgeInsets.only(right: 6),
-                            child: Text(
-                              'Calm',
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.stressLow,
-                              ),
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Text(
+                            '${v.toInt()}%',
+                            textAlign: TextAlign.end,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.onSurfaceVariant,
                             ),
-                          );
-                        } else if (v == 1.0) {
-                          return const Padding(
-                            padding: EdgeInsets.only(right: 6),
-                            child: Text(
-                              'Stressed',
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.stressHigh,
-                              ),
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
+                          ),
+                        );
                       },
                     ),
                   ),
@@ -159,8 +143,8 @@ class StressChartWidget extends StatelessWidget {
                   ),
                 ),
                 borderData: FlBorderData(show: false),
-                minY: -0.1,
-                maxY: 1.1,
+                minY: 0.0,
+                maxY: 100.0,
                 lineBarsData: [
                   LineChartBarData(
                     spots: spots,

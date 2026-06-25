@@ -39,6 +39,7 @@ class AppProvider extends ChangeNotifier {
   // ── Bracelet / sensor data ─────────────────────────────────
   StressReading? _latestReading;
   final List<StressReading> _recentReadings = [];
+  final List<StressReading> _dbSaveBuffer = [];
   StreamSubscription<StressReading>? _braceletSub;
   bool _savingReadings = true;
   DateTime? _lastAlertSentTime;

@@ -366,7 +366,7 @@ class _StressHeroCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                hasData ? (isStressed ? 'Stressed 😤' : 'Calm 😌') : '--',
+                hasData ? 'Stress: ${reading!.stressScore}%' : '--',
                 style: GoogleFonts.manrope(
                   fontSize: 36,
                   fontWeight: FontWeight.w800,

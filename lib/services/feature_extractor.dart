@@ -14,18 +14,25 @@ class FeatureExtractor {
     required List<double> hrHistory,
     required List<List<double>> accelHistory,
   }) {
-    if (tempHistory.isEmpty || hrHistory.isEmpty || accelHistory.isEmpty) {
+    // Filter out 0.0 and invalid low readings (from startup, dropouts, or poor contact) to prevent std pollution.
+    final List<double> cleanHrHistory = hrHistory.where((h) => h >= 45.0).toList();
+    final List<double> cleanTempHistory = tempHistory.where((t) => t > 0.0).toList();
+
+    if (cleanTempHistory.isEmpty || cleanHrHistory.isEmpty || accelHistory.isEmpty) {
       return List.filled(13, 0.0);
     }
 
     // ── 1. BVP features (Proxied via HR History) ──────────────────────────
     // Center the HR history to make it zero-mean, resembling a high-pass filtered BVP signal.
-    final double hrMean = hrHistory.reduce((a, b) => a + b) / hrHistory.length;
-    final List<double> bvpSignal = hrHistory.map((h) => h - hrMean).toList();
+    final double hrMean = cleanHrHistory.reduce((a, b) => a + b) / cleanHrHistory.length;
+    final List<double> bvpSignal = cleanHrHistory.map((h) => h - hrMean).toList();
 
     final double bvpMean = 0.0; // By definition, since we subtracted the mean
-    final double bvpStd = _calculateStd(bvpSignal, bvpMean);
-    final double bvpMad = _calculateMad(bvpSignal, bvpMean);
+    
+    // Clamp proxy BVP features to the model's expected range to prevent heart rate fluctuations
+    // from triggering false stress classifications.
+    final double bvpStd = _calculateStd(bvpSignal, bvpMean).clamp(0.0, 1.5);
+    final double bvpMad = _calculateMad(bvpSignal, bvpMean).clamp(0.0, 1.2);
     
     // First differences (velocity)
     final List<double> bvpVelocity = [];
@@ -33,7 +40,7 @@ class FeatureExtractor {
       bvpVelocity.add(bvpSignal[i + 1] - bvpSignal[i]);
     }
     final double bvpVelocityMean = bvpVelocity.isEmpty ? 0.0 : bvpVelocity.reduce((a, b) => a + b) / bvpVelocity.length;
-    final double bvpVelocityStd = _calculateStd(bvpVelocity, bvpVelocityMean);
+    final double bvpVelocityStd = _calculateStd(bvpVelocity, bvpVelocityMean).clamp(0.0, 0.2);
 
     // Second differences (acceleration)
     final List<double> bvpAcceleration = [];
@@ -41,21 +48,35 @@ class FeatureExtractor {
       bvpAcceleration.add(bvpVelocity[i + 1] - bvpVelocity[i]);
     }
     final double bvpAccelMean = bvpAcceleration.isEmpty ? 0.0 : bvpAcceleration.reduce((a, b) => a + b) / bvpAcceleration.length;
-    final double bvpAccelerationStd = _calculateStd(bvpAcceleration, bvpAccelMean);
+    final double bvpAccelerationStd = _calculateStd(bvpAcceleration, bvpAccelMean).clamp(0.0, 0.06);
 
     // ── 2. Skin Temperature features ──────────────────────────────────────
-    final double tempMeanRaw = tempHistory.reduce((a, b) => a + b) / tempHistory.length;
-    // Normalize temperature mean by subtracting typical baseline (35.0 C)
-    // This maps a range of 33-37 C to -2.0 to +2.0, matching model's expectations.
-    final double tempMean = tempMeanRaw - 35.0; 
-    final double tempStd = _calculateStd(tempHistory, tempMeanRaw);
-    final double tempSlope = _calculateSlope(tempHistory);
+    final double tempMeanRaw = cleanTempHistory.reduce((a, b) => a + b) / cleanTempHistory.length;
+    // Use the 90th percentile of temperature history as baseline to make it robust against sensor spikes.
+    final List<double> sortedTemp = List.from(cleanTempHistory)..sort();
+    final double tempMax = sortedTemp.isNotEmpty 
+        ? sortedTemp[(sortedTemp.length * 0.9).toInt().clamp(0, sortedTemp.length - 1)]
+        : 35.0;
+    final double tempBaseline = tempMax > 28.0 ? tempMax : 35.0;
+    // Centering: a calm state (tempMeanRaw close to baseline) maps to 1.0 (calm).
+    final double tempMean = tempMeanRaw - (tempBaseline - 1.0); 
+    final double tempStd = _calculateStd(cleanTempHistory, tempMeanRaw);
+    final double tempSlope = _calculateSlope(cleanTempHistory);
 
     // ── 3. Accelerometer features ─────────────────────────────────────────
-    // Convert from m/s^2 to g (gravity units) by dividing by 9.8
-    final List<double> accX = accelHistory.map((a) => a[0] / 9.8).toList();
-    final List<double> accY = accelHistory.map((a) => a[1] / 9.8).toList();
-    final List<double> accZ = accelHistory.map((a) => a[2] / 9.8).toList();
+    // Auto-detect if accelerometer readings are in m/s^2 (e.g. mock mode ~9.8) or g (actual bracelet ~1.0)
+    // and scale them by 64.0 to match the training data's Empatica E4 units (1g = 64 LSB).
+    final List<double> accX = [];
+    final List<double> accY = [];
+    final List<double> accZ = [];
+    
+    for (var a in accelHistory) {
+      final double rawMag = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+      final double scale = rawMag > 4.0 ? (1.0 / 9.8) * 64.0 : 64.0;
+      accX.add(a[0] * scale);
+      accY.add(a[1] * scale);
+      accZ.add(a[2] * scale);
+    }
 
     // Compute magnitude for each sample
     final List<double> accMag = [];
@@ -67,9 +88,12 @@ class FeatureExtractor {
     }
 
     final double accMagMeanRaw = accMag.reduce((a, b) => a + b) / accMag.length;
-    // Subtract 1.0 g (standard gravity) to center magnitude around 0
-    final double accMagMean = accMagMeanRaw - 1.0;
     final double accMagStd = _calculateStd(accMag, accMagMeanRaw);
+
+    // To handle sensor calibration errors (where stationary gravity raw magnitude is e.g. 62 LSB instead of exactly 64 LSB),
+    // if the user is stationary (accMagStd < 2.0 LSB), we center the magnitude to exactly 0.0.
+    // If they are moving, we subtract the standard 64.0 LSB.
+    final double accMagMean = accMagStd < 2.0 ? 0.0 : accMagMeanRaw - 64.0;
 
     final double accXMean = accX.reduce((a, b) => a + b) / accX.length;
     final double accXStd = _calculateStd(accX, accXMean);

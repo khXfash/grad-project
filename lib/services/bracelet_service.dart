@@ -5,8 +5,6 @@ import 'dart:math' show Random;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/stress_reading.dart';
-import 'wesad_ml_service.dart';
-import 'stress_ai_service.dart';
 import 'lightgbm_ml_service.dart';
 import 'feature_extractor.dart';
 
@@ -16,9 +14,6 @@ class BraceletService {
   BraceletService._internal() {
     _initMl();
   }
-
-  // WESAD AI model service
-  final WesadMlService _wesadService = WesadMlService();
 
   // LightGBM AI model service
   final LightGbmMlService _lightGbmService = LightGbmMlService();
@@ -79,7 +74,6 @@ class BraceletService {
   double get accelZ => _accelZ;
 
   Future<void> _initMl() async {
-    await _wesadService.initialize();
     await _lightGbmService.initialize();
   }
 
@@ -143,7 +137,9 @@ class BraceletService {
 
     try {
       // Connect to BLE Device
-      await device.connect(autoConnect: false).timeout(const Duration(seconds: 10));
+      await device
+          .connect(autoConnect: false)
+          .timeout(const Duration(seconds: 10));
 
       // Observe connection state
       _connSub = device.connectionState.listen((state) {
@@ -166,10 +162,12 @@ class BraceletService {
 
       for (var service in services) {
         // Nordic UART Service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-        if (service.uuid.toString().toLowerCase() == "6e400001-b5a3-f393-e0a9-e50e24dcca9e") {
+        if (service.uuid.toString().toLowerCase() ==
+            "6e400001-b5a3-f393-e0a9-e50e24dcca9e") {
           for (var char in service.characteristics) {
             // Nordic UART TX: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
-            if (char.uuid.toString().toLowerCase() == "6e400003-b5a3-f393-e0a9-e50e24dcca9e") {
+            if (char.uuid.toString().toLowerCase() ==
+                "6e400003-b5a3-f393-e0a9-e50e24dcca9e") {
               txChar = char;
               break;
             }
@@ -183,13 +181,16 @@ class BraceletService {
         _charSub = txChar.lastValueStream.listen((bytes) {
           _onBytesReceived(bytes);
         });
-        log("BraceletService: Subscribed to notifications on TX characteristic");
+        log(
+          "BraceletService: Subscribed to notifications on TX characteristic",
+        );
       } else {
-        log("BraceletService: Nordic UART TX Characteristic not found. Disconnecting...");
+        log(
+          "BraceletService: Nordic UART TX Characteristic not found. Disconnecting...",
+        );
         await device.disconnect();
         disconnect();
       }
-
     } catch (e) {
       log("BraceletService connectToDevice error: $e");
       disconnect();
@@ -223,9 +224,15 @@ class BraceletService {
         (_skinTemp + (_random.nextDouble() * 0.1 - 0.05)).toStringAsFixed(2),
       ).clamp(35.0, 38.5);
 
-      _accelX = double.parse((_random.nextDouble() * 1.5 - 0.75).toStringAsFixed(3));
-      _accelY = double.parse((_random.nextDouble() * 1.5 - 0.75).toStringAsFixed(3));
-      _accelZ = double.parse((9.8 + _random.nextDouble() * 0.8 - 0.4).toStringAsFixed(3));
+      _accelX = double.parse(
+        (_random.nextDouble() * 1.5 - 0.75).toStringAsFixed(3),
+      );
+      _accelY = double.parse(
+        (_random.nextDouble() * 1.5 - 0.75).toStringAsFixed(3),
+      );
+      _accelZ = double.parse(
+        (9.8 + _random.nextDouble() * 0.8 - 0.4).toStringAsFixed(3),
+      );
 
       _processSensorMetrics(
         hr: _heartRate,
@@ -247,6 +254,14 @@ class BraceletService {
     _isMockMode = false;
     _isFingerDetected = false;
     _lastPredictionTime = null;
+
+    // Reset buffers
+    _tempHistory.clear();
+    _hrHistory.clear();
+    _accelHistory.clear();
+    _lastTempSampleTime = null;
+    _lastHrSampleTime = null;
+    _lastAccelSampleTime = null;
 
     // Cancel BLE subscriptions
     _charSub?.cancel();
@@ -332,21 +347,29 @@ class BraceletService {
   }) async {
     final now = DateTime.now();
 
-    // 1. If buffer is completely empty, "pre-fill" it to bypass WESAD's 60-second latency
-    if (_tempHistory.isEmpty) {
+    // Apply low-pass filter (EMA with alpha=0.15) to eliminate the high-frequency sensor noise floor
+    // of cheap accelerometers (like MPU6050) when the user is stationary.
+    final bool isFirstSample = _tempHistory.isEmpty;
+    _accelX = isFirstSample ? ax : (0.15 * ax) + (0.85 * _accelX);
+    _accelY = isFirstSample ? ay : (0.15 * ay) + (0.85 * _accelY);
+    _accelZ = isFirstSample ? az : (0.15 * az) + (0.85 * _accelZ);
+
+    // 1. If buffer is completely empty, "pre-fill" it with a valid reading to bypass WESAD's 60-second latency.
+    // We only pre-fill if the reading is valid (hr >= 45 and temp > 28.0) to avoid polluting the buffers with invalid startup values.
+    if (_tempHistory.isEmpty && hr >= 45 && temp > 28.0) {
       _tempHistory.addAll(List.filled(240, temp));
       _hrHistory.addAll(List.filled(60, hr.toDouble()));
-      _accelHistory.addAll(List.filled(1920, [ax, ay, az]));
+      _accelHistory.addAll(List.filled(1920, [_accelX, _accelY, _accelZ]));
       _lastTempSampleTime = now;
       _lastHrSampleTime = now;
       _lastAccelSampleTime = now;
-    } else {
+    } else if (_tempHistory.isNotEmpty) {
       // 2. Downsample streaming events into FIFO buffers based on targeted sample rates
 
       // Accelerometer downsampling (~32Hz = every 31.25 ms)
       if (_lastAccelSampleTime == null ||
           now.difference(_lastAccelSampleTime!).inMilliseconds >= 31) {
-        _accelHistory.add([ax, ay, az]);
+        _accelHistory.add([_accelX, _accelY, _accelZ]);
         if (_accelHistory.length > 1920) _accelHistory.removeAt(0);
         _lastAccelSampleTime = now;
       }
@@ -371,9 +394,6 @@ class BraceletService {
     // 3. Update current variables
     _heartRate = hr;
     _skinTemp = temp;
-    _accelX = ax;
-    _accelY = ay;
-    _accelZ = az;
 
     // 4. Run the WESAD multi-modal classifier & emit prediction at a throttled rate
     if (_lastPredictionTime == null ||
@@ -390,36 +410,14 @@ class BraceletService {
           );
           final double stressProb = _lightGbmService.predict(features);
           score = (stressProb * 100).round().clamp(0, 100);
+          // ignore: avoid_print
+          print("BraceletService AI: hr=$hr, temp=$temp, accel=[$ax,$ay,$az] -> features=$features -> prob=$stressProb, score=$score");
         } catch (e) {
           log("BraceletService: LightGBM AI prediction failed: $e");
         }
       }
 
-      // Fallback 1: WESAD model (if LightGBM is not initialized or returned 0 stress)
-      if (score == 0 && _wesadService.isInitialized) {
-        try {
-          List<double> probs = await _wesadService.predict(
-            tempHistory: List.from(_tempHistory),
-            hrHistory: List.from(_hrHistory),
-            accelHistory: List.from(_accelHistory),
-          );
-          double stressProb = probs[1];
-          score = (stressProb * 100).round().clamp(0, 100);
-        } catch (e) {
-          log("BraceletService: WESAD AI prediction failed: $e");
-        }
-      }
 
-      // Fallback 2: Rule-based heuristic
-      if (score == 0) {
-        score = StressAiService.calculateStressScore(
-          heartRate: hr,
-          skinTemp: temp,
-          accelX: ax,
-          accelY: ay,
-          accelZ: az,
-        );
-      }
 
       // Emit stress reading
       final reading = StressReading(
@@ -442,7 +440,6 @@ class BraceletService {
     _isScanningSub?.cancel();
     _scanSub?.cancel();
     _controller.close();
-    _wesadService.dispose();
     _lightGbmService.dispose();
   }
 }
